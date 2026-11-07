@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -17,6 +18,7 @@ COULEURS = {
     "Haricot": "#A71E36",
     "Pois congo": "#54A24B",
 }
+ECHELLE_CULTURES = alt.Scale(domain=list(COULEURS), range=list(COULEURS.values()))
 
 st.set_page_config(page_title="Les récoltes agricoles", page_icon="🌾", layout="wide")
 
@@ -133,5 +135,176 @@ st.caption(
     "on y voit le rendement monter chaque printemps, plus pluvieux, et baisser chaque automne."
 )
 
-st.write(f"Le fichier propre compte {len(filtre)} lignes.")
-st.dataframe(filtre.head(10), hide_index=True)
+# ------------------------------------------------------------------ Une partie par question
+onglet1, onglet2, onglet3, onglet4, onglet5 = st.tabs(
+    ["1. Poids des cultures", "2. Rendements", "3. Pluie", "4. Évolution 2023-2025", "5. Par habitant"]
+)
+
+# ---------- Question 1
+with onglet1:
+    st.subheader("Quelles cultures pèsent le plus, en tonnes puis en valeur ?")
+    poids = filtre.groupby("culture", as_index=False).agg(
+        production_t=("production_t", "sum"),
+        valeur_htg=("valeur_htg", "sum"),
+        prix_htg_kg=("prix_htg_kg", "first"),
+    )
+    poids["milliers_t"] = poids["production_t"] / 1000
+    poids["valeur_milliards"] = poids["valeur_htg"] / 1e9
+    poids["rang_tonnes"] = poids["production_t"].rank(ascending=False, method="first").astype(int)
+    poids["rang_valeur"] = poids["valeur_htg"].rank(ascending=False, method="first").astype(int)
+
+    couleur = alt.Color("culture:N", scale=ECHELLE_CULTURES, legend=None)
+    gauche, milieu, droite = st.columns(3)
+    with gauche:
+        barres_tonnes = (
+            alt.Chart(poids, title="En tonnes")
+            .mark_bar()
+            .encode(
+                x=alt.X("milliers_t:Q", title="Milliers de tonnes"),
+                y=alt.Y("culture:N", sort="-x", title=None),
+                color=couleur,
+                tooltip=[alt.Tooltip("culture", title="Culture"), alt.Tooltip("production_t", title="Tonnes", format=",.0f")],
+            )
+        )
+        st.altair_chart(barres_tonnes, width="stretch")
+    with milieu:
+        barres_valeur = (
+            alt.Chart(poids, title="En valeur")
+            .mark_bar()
+            .encode(
+                x=alt.X("valeur_milliards:Q", title="Milliards de gourdes"),
+                y=alt.Y("culture:N", sort="-x", title=None),
+                color=couleur,
+                tooltip=[
+                    alt.Tooltip("culture", title="Culture"),
+                    alt.Tooltip("valeur_milliards", title="Milliards HTG", format=".2f"),
+                    alt.Tooltip("prix_htg_kg", title="Prix (HTG/kg)"),
+                ],
+            )
+        )
+        st.altair_chart(barres_valeur, width="stretch")
+    with droite:
+        # Graphique de pente : chaque culture relie son rang en tonnes (à gauche) à son rang en valeur (à droite).
+        rangs = pd.concat(
+            [
+                poids.assign(position=0, rang=poids["rang_tonnes"]),
+                poids.assign(position=1, rang=poids["rang_valeur"]),
+            ]
+        )
+        rangs["etiquette"] = rangs["culture"] + " (" + rangs["rang"].astype(str) + ")"
+        echelle_x = alt.X("position:Q", scale=alt.Scale(domain=[-0.9, 1.9]), axis=None)
+        echelle_y = alt.Y("rang:Q", scale=alt.Scale(reverse=True, domain=[0.5, len(poids) + 0.5]), axis=None)
+        pente = (
+            alt.Chart(rangs, title=alt.Title("Le classement change-t-il ?", subtitle="Rang en tonnes → rang en valeur"))
+            .mark_line(point=True, strokeWidth=3)
+            .encode(x=echelle_x, y=echelle_y, color=couleur, detail="culture:N")
+        )
+        texte_gauche = (
+            alt.Chart(rangs[rangs["position"] == 0])
+            .mark_text(align="right", dx=-8)
+            .encode(x=echelle_x, y=echelle_y, text="etiquette:N")
+        )
+        texte_droite = (
+            alt.Chart(rangs[rangs["position"] == 1])
+            .mark_text(align="left", dx=8)
+            .encode(x=echelle_x, y=echelle_y, text="etiquette:N")
+        )
+        st.altair_chart(pente + texte_gauche + texte_droite, width="stretch")
+
+    premier_tonnes = poids.loc[poids["production_t"].idxmax()]
+    premier_valeur = poids.loc[poids["valeur_htg"].idxmax()]
+    part_valeur = 100 * premier_valeur["valeur_htg"] / poids["valeur_htg"].sum()
+    if premier_tonnes["culture"] == premier_valeur["culture"]:
+        phrase = (
+            f"**{premier_tonnes['culture']}** arrive en tête en tonnes ({nombre(premier_tonnes['production_t'])} t) "
+            f"comme en valeur ({nombre(premier_valeur['valeur_milliards'], 1)} milliards de gourdes)."
+        )
+    else:
+        phrase = (
+            f"En tonnes, **{premier_tonnes['culture']}** arrive en tête ({nombre(premier_tonnes['production_t'])} t), "
+            f"mais en valeur c'est **{premier_valeur['culture']}** : {nombre(premier_valeur['valeur_milliards'], 1)} "
+            f"milliards de gourdes, {part_valeur:.0f} % de la valeur totale."
+        )
+    gains = poids.assign(gain=poids["rang_tonnes"] - poids["rang_valeur"]).sort_values("gain", ascending=False)
+    meilleur_gain = gains.iloc[0]
+    if meilleur_gain["gain"] > 0:
+        phrase += (
+            f" Le classement change : **{meilleur_gain['culture']}** gagne {meilleur_gain['gain']} places, "
+            f"grâce à son prix de {nombre(meilleur_gain['prix_htg_kg'])} HTG le kilo."
+        )
+    st.success(f"**Ce qu'on en conclut :** {phrase}")
+
+# ---------- Question 2
+with onglet2:
+    st.subheader("Où les rendements sont-ils les meilleurs, culture par culture ?")
+    somme = filtre.groupby(["culture", "departement"], as_index=False)[
+        ["production_t", "surface_ha", "production_attendue_t"]
+    ].sum()
+    # Rendement d'un groupe = somme des tonnes / somme des hectares (pas la moyenne des rendements).
+    somme["rendement_t_ha"] = somme["production_t"] / somme["surface_ha"]
+    somme["indice"] = somme["production_t"] / somme["production_attendue_t"]
+    somme["texte"] = somme["rendement_t_ha"].map(lambda v: nombre(v, 2))
+    ordre_departements = somme.groupby("departement")["indice"].mean().sort_values(ascending=False).index.tolist()
+
+    base = alt.Chart(
+        somme,
+        title=alt.Title(
+            "Rendement en tonnes par hectare",
+            subtitle="Vert : au-dessus du rendement de référence de la culture. Rouge : en dessous.",
+        ),
+    ).encode(
+        x=alt.X("departement:N", sort=ordre_departements, title=None, axis=alt.Axis(labelAngle=-30, orient="top")),
+        y=alt.Y("culture:N", title=None),
+    )
+    cases = base.mark_rect(stroke="white", strokeWidth=2).encode(
+        color=alt.Color(
+            "indice:Q",
+            scale=alt.Scale(scheme="redyellowgreen", domainMid=1),
+            legend=alt.Legend(title="Rendement / référence", format=".0%"),
+        ),
+        tooltip=[
+            alt.Tooltip("culture", title="Culture"),
+            alt.Tooltip("departement", title="Département"),
+            alt.Tooltip("rendement_t_ha", title="Rendement (t/ha)", format=".2f"),
+            alt.Tooltip("indice", title="Par rapport à la référence", format=".0%"),
+        ],
+    )
+    valeurs = base.mark_text(fontSize=12).encode(text="texte:N")
+    st.altair_chart((cases + valeurs).properties(height=340), width="stretch")
+
+    meilleurs = somme.loc[somme.groupby("culture")["rendement_t_ha"].idxmax()].sort_values("indice", ascending=False)
+    meilleurs["ecart"] = 100 * (meilleurs["indice"] - 1)
+    st.dataframe(
+        meilleurs[["culture", "departement", "rendement_t_ha", "ecart"]],
+        hide_index=True,
+        column_config={
+            "culture": "Culture",
+            "departement": "Meilleur département",
+            "rendement_t_ha": st.column_config.NumberColumn("Rendement (t/ha)", format="%.2f"),
+            "ecart": st.column_config.NumberColumn("Écart à la référence", format="%+.0f %%"),
+        },
+    )
+    champion = meilleurs["departement"].value_counts()
+    premier = meilleurs.iloc[0]
+    if filtre["departement"].nunique() == 1:
+        phrase = "Avec un seul département choisi, on compare ses cultures à leur référence. "
+    elif champion.iloc[0] == len(meilleurs):
+        phrase = f"**{champion.index[0]}** a le meilleur rendement pour toutes les cultures choisies. "
+    else:
+        phrase = (
+            f"Il n'y a pas un département champion pour tout : **{champion.index[0]}** est en tête pour "
+            f"{champion.iloc[0]} culture{'s' if champion.iloc[0] > 1 else ''} sur {len(meilleurs)}. "
+        )
+    phrase += (
+        f"Le record relatif est **{premier['culture']}** en **{premier['departement']}** : "
+        f"{nombre(premier['rendement_t_ha'], 2)} t/ha, {premier['ecart']:.0f} % au-dessus de la référence."
+    )
+    st.success(f"**Ce qu'on en conclut :** {phrase}")
+
+with onglet3:
+    st.info("Cette partie arrive bientôt.")
+with onglet4:
+    st.info("Cette partie arrive bientôt.")
+
+with onglet5:
+    st.info("Cette partie arrive bientôt.")
