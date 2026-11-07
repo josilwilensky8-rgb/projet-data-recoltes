@@ -46,7 +46,27 @@ st.caption(
     "Nettoyage et jointures dans `exploration.ipynb`. Projet final, Python pour l'analyse de données, ESIH 2026."
 )
 
-filtre = recoltes
+# ------------------------------------------------------------------ Filtres
+st.sidebar.header("Filtres")
+st.sidebar.caption("Ils changent les indicateurs et tous les graphiques.")
+
+annees = st.sidebar.multiselect("Années", [2023, 2024, 2025], default=[2023, 2024, 2025])
+saison = st.sidebar.selectbox("Saison", ["Les deux saisons", "Printemps", "Automne"])
+tous_departements = sorted(recoltes["departement"].unique())
+departements = st.sidebar.multiselect("Départements", tous_departements, default=tous_departements)
+cultures = st.sidebar.multiselect("Cultures", list(COULEURS), default=list(COULEURS))
+
+filtre = recoltes[
+    recoltes["annee"].isin(annees)
+    & recoltes["departement"].isin(departements)
+    & recoltes["culture"].isin(cultures)
+]
+if saison != "Les deux saisons":
+    filtre = filtre[filtre["saison"] == saison]
+
+if filtre.empty:
+    st.warning("Aucune récolte ne correspond à ces filtres : gardez au moins une année, un département et une culture.")
+    st.stop()
 
 st.write(f"Le fichier propre compte {len(filtre)} lignes.")
 st.dataframe(filtre.head(10), hide_index=True)
