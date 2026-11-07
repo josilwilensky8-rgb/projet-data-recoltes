@@ -301,10 +301,143 @@ with onglet2:
     )
     st.success(f"**Ce qu'on en conclut :** {phrase}")
 
+# ---------- Question 3
 with onglet3:
-    st.info("Cette partie arrive bientôt.")
+    st.subheader("La pluie explique-t-elle les rendements ? Pour quelles cultures ?")
+    correlations = {
+        culture: lignes["pluie_mm"].corr(lignes["rendement_t_ha"])
+        for culture, lignes in filtre.groupby("culture")
+        if len(lignes) >= 5
+    }
+    if not correlations:
+        st.info("Pas assez de récoltes pour mesurer un lien : élargissez les filtres.")
+    else:
+        lien = pd.Series(correlations).sort_values(ascending=False)
+        nuage = filtre[filtre["culture"].isin(lien.index)].copy()
+        titres = {culture: f"{culture}  (r = {nombre(r, 2)})" for culture, r in lien.items()}
+        nuage["titre"] = nuage["culture"].map(titres)
+        ordre_titres = list(titres.values())
+
+        points = (
+            alt.Chart()
+            .mark_circle(size=60, opacity=0.75)
+            .encode(
+                x=alt.X("pluie_mm:Q", title="Pluie de la saison (mm)", scale=alt.Scale(zero=False)),
+                y=alt.Y("rendement_t_ha:Q", title="Rendement (t/ha)", scale=alt.Scale(zero=False)),
+                color=alt.Color("culture:N", scale=ECHELLE_CULTURES, legend=None),
+                tooltip=[
+                    alt.Tooltip("departement", title="Département"),
+                    alt.Tooltip("annee", title="Année"),
+                    alt.Tooltip("saison", title="Saison"),
+                    alt.Tooltip("pluie_mm", title="Pluie (mm)"),
+                    alt.Tooltip("rendement_t_ha", title="Rendement (t/ha)", format=".2f"),
+                ],
+            )
+        )
+        droite = (
+            alt.Chart()
+            .transform_regression("pluie_mm", "rendement_t_ha")
+            .mark_line(color="#2B2B2B", strokeWidth=2)
+            .encode(x="pluie_mm:Q", y="rendement_t_ha:Q")
+        )
+        nuages = (
+            alt.layer(points, droite, data=nuage)
+            .properties(width=175, height=170)
+            .facet(
+                facet=alt.Facet("titre:N", sort=ordre_titres, title=None, header=alt.Header(labelFontSize=13, labelFontWeight="bold")),
+                columns=4,
+            )
+            .resolve_scale(y="independent")
+            .properties(title="Un point = une culture, une saison, un département. La droite résume la tendance.")
+        )
+        st.altair_chart(nuages)
+
+        plus_fort, plus_faible = lien.index[0], lien.index[-1]
+        if lien.iloc[0] >= 0.5:
+            debut = "Oui : plus il pleut, plus le rendement monte."
+        else:
+            debut = "Le lien avec la pluie reste faible."
+        phrase = (
+            f"{debut} Le lien est le plus fort pour **{plus_fort}** "
+            f"(r = {nombre(lien.iloc[0], 2)}, la pluie explique environ {100 * lien.iloc[0] ** 2:.0f} % des écarts de rendement)"
+        )
+        if len(lien) > 1:
+            phrase += f" et le plus faible pour **{plus_faible}** (r = {nombre(lien.iloc[-1], 2)})"
+            if plus_faible == "Riz":
+                phrase += ", une culture souvent irriguée, donc moins dépendante de la pluie"
+        phrase += "."
+        if filtre["saison"].nunique() == 2:
+            saisons = filtre.groupby("saison")[["production_t", "production_attendue_t"]].sum()
+            indices = 100 * saisons["production_t"] / saisons["production_attendue_t"]
+            phrase += (
+                f" Les automnes, plus secs, rendent {nombre(indices['Automne'])} % de la référence, "
+                f"contre {nombre(indices['Printemps'])} % au printemps."
+            )
+        st.success(f"**Ce qu'on en conclut :** {phrase}")
+        st.caption("r est le coefficient de corrélation : 1 = lien parfait, 0 = aucun lien. Une corrélation ne prouve pas à elle seule la cause.")
+
+# ---------- Question 4
 with onglet4:
-    st.info("Cette partie arrive bientôt.")
+    st.subheader("Quelles cultures progressent ou reculent entre 2023 et 2025 ?")
+    if not {2023, 2025} <= set(annees):
+        st.info("Gardez 2023 et 2025 dans le filtre des années pour comparer le début et la fin de la période.")
+    else:
+        par_culture = filtre.groupby(["culture", "annee"])[["production_t", "surface_ha"]].sum().unstack().dropna()
+        variations = pd.DataFrame(index=par_culture.index)
+        variations["Production"] = 100 * (par_culture[("production_t", 2025)] / par_culture[("production_t", 2023)] - 1)
+        variations["Surface"] = 100 * (par_culture[("surface_ha", 2025)] / par_culture[("surface_ha", 2023)] - 1)
+        rendement_2023 = par_culture[("production_t", 2023)] / par_culture[("surface_ha", 2023)]
+        rendement_2025 = par_culture[("production_t", 2025)] / par_culture[("surface_ha", 2025)]
+        variations["Rendement"] = 100 * (rendement_2025 / rendement_2023 - 1)
+        variations = variations.sort_values("Production", ascending=False)
+
+        longue = variations.reset_index().melt(id_vars="culture", var_name="mesure", value_name="variation")
+        barres = (
+            alt.Chart(
+                longue,
+                title=alt.Title(
+                    "Variation entre 2023 et 2025",
+                    subtitle="La production change si l'on plante plus d'hectares (surface) ou si chaque hectare rend plus (rendement).",
+                ),
+            )
+            .mark_bar()
+            .encode(
+                x=alt.X("culture:N", sort=variations.index.tolist(), title=None, axis=alt.Axis(labelAngle=0)),
+                xOffset=alt.XOffset("mesure:N", sort=["Production", "Surface", "Rendement"]),
+                y=alt.Y("variation:Q", title="Variation (%)"),
+                color=alt.Color(
+                    "mesure:N",
+                    scale=alt.Scale(domain=["Production", "Surface", "Rendement"], range=["#A71E36", "#B0B0B0", "#4C78A8"]),
+                    legend=alt.Legend(title=None, orient="top"),
+                ),
+                tooltip=[
+                    alt.Tooltip("culture", title="Culture"),
+                    alt.Tooltip("mesure", title="Mesure"),
+                    alt.Tooltip("variation", title="Variation (%)", format="+.1f"),
+                ],
+            )
+        )
+        zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color="#2B2B2B").encode(y="y:Q")
+        st.altair_chart((barres + zero).properties(height=380), width="stretch")
+
+        hausse, baisse = variations.iloc[0], variations.iloc[-1]
+
+        def cause(ligne):
+            if abs(ligne["Surface"]) >= abs(ligne["Rendement"]):
+                return f"surtout parce que les surfaces ont {'augmenté' if ligne['Surface'] > 0 else 'baissé'} de {abs(ligne['Surface']):.0f} %"
+            return f"surtout parce que le rendement a {'augmenté' if ligne['Rendement'] > 0 else 'baissé'} de {abs(ligne['Rendement']):.0f} %"
+
+        def sens(ligne):
+            return "progresse" if ligne["Production"] > 0 else "recule"
+
+        phrase = f"**{hausse.name}** {sens(hausse)} de {abs(hausse['Production']):.0f} %, {cause(hausse)}."
+        if len(variations) > 1:
+            phrase = "La meilleure évolution : " + phrase
+            phrase += f" La pire : **{baisse.name}** {sens(baisse)} de {abs(baisse['Production']):.0f} %, {cause(baisse)}."
+            en_hausse = (variations["Production"] > 0).sum()
+            phrase += f" Au total, {en_hausse} culture{'s' if en_hausse > 1 else ''} sur {len(variations)} progresse{'nt' if en_hausse > 1 else ''}."
+        st.success(f"**Ce qu'on en conclut :** {phrase}")
+        st.caption("10 récoltes manquent en 2023 et 2025 (productions vides dans le fichier brut) : les petites variations sont à lire avec prudence.")
 
 with onglet5:
     st.info("Cette partie arrive bientôt.")
