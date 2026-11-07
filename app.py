@@ -20,6 +20,20 @@ COULEURS = {
 }
 ECHELLE_CULTURES = alt.Scale(domain=list(COULEURS), range=list(COULEURS.values()))
 
+# Position approximative du chef-lieu de chaque département, pour la carte.
+CHEFS_LIEUX = {
+    "Ouest": (18.54, -72.34),
+    "Artibonite": (19.45, -72.69),
+    "Nord": (19.76, -72.20),
+    "Sud": (18.19, -73.75),
+    "Centre": (19.14, -72.00),
+    "Nord-Ouest": (19.94, -72.83),
+    "Sud-Est": (18.23, -72.53),
+    "Grand'Anse": (18.65, -74.12),
+    "Nord-Est": (19.66, -71.84),
+    "Nippes": (18.44, -73.09),
+}
+
 st.set_page_config(page_title="Les récoltes agricoles", page_icon="🌾", layout="wide")
 
 
@@ -439,5 +453,78 @@ with onglet4:
         st.success(f"**Ce qu'on en conclut :** {phrase}")
         st.caption("10 récoltes manquent en 2023 et 2025 (productions vides dans le fichier brut) : les petites variations sont à lire avec prudence.")
 
+# ---------- Question 5
 with onglet5:
-    st.info("Cette partie arrive bientôt.")
+    st.subheader("Quels départements produisent le plus par habitant ?")
+    mesure = st.radio(
+        "Mesurer la production en",
+        ["kilos par habitant", "gourdes par habitant"],
+        horizontal=True,
+        help="Les kilos mélangent des cultures lourdes et bon marché (banane) et des cultures légères et chères (haricot).",
+    )
+    nb_annees = filtre["annee"].nunique()
+    par_departement = filtre.groupby("departement", as_index=False).agg(
+        production_t=("production_t", "sum"),
+        valeur_htg=("valeur_htg", "sum"),
+        population=("population", "first"),
+    )
+    if mesure == "kilos par habitant":
+        par_departement["par_habitant"] = par_departement["production_t"] * 1000 / par_departement["population"] / nb_annees
+        unite = "kg par habitant et par an"
+        moyenne = filtre["production_t"].sum() * 1000 / par_departement["population"].sum() / nb_annees
+    else:
+        par_departement["par_habitant"] = par_departement["valeur_htg"] / par_departement["population"] / nb_annees
+        unite = "gourdes par habitant et par an"
+        moyenne = filtre["valeur_htg"].sum() / par_departement["population"].sum() / nb_annees
+    par_departement["position"] = par_departement["par_habitant"].map(
+        lambda v: "Au-dessus de la moyenne" if v > moyenne else "En dessous de la moyenne"
+    )
+    par_departement = par_departement.sort_values("par_habitant", ascending=False)
+
+    gauche, droite = st.columns([3, 2])
+    with gauche:
+        barres = (
+            alt.Chart(par_departement, title=alt.Title(f"Production en {unite}", subtitle=f"Ligne : moyenne des départements choisis ({nombre(moyenne)})"))
+            .mark_bar()
+            .encode(
+                x=alt.X("par_habitant:Q", title=unite.capitalize()),
+                y=alt.Y("departement:N", sort="-x", title=None, axis=alt.Axis(labelOverlap=False)),
+                color=alt.Color(
+                    "position:N",
+                    scale=alt.Scale(domain=["Au-dessus de la moyenne", "En dessous de la moyenne"], range=["#2E7D32", "#A71E36"]),
+                    legend=alt.Legend(title=None, orient="bottom"),
+                ),
+                tooltip=[
+                    alt.Tooltip("departement", title="Département"),
+                    alt.Tooltip("par_habitant", title=unite.capitalize(), format=",.0f"),
+                    alt.Tooltip("production_t", title="Production (t)", format=",.0f"),
+                    alt.Tooltip("population", title="Population", format=",.0f"),
+                ],
+            )
+        )
+        ligne_moyenne = alt.Chart(pd.DataFrame({"x": [moyenne]})).mark_rule(strokeDash=[5, 4]).encode(x="x:Q")
+        st.altair_chart((barres + ligne_moyenne).properties(height=400), width="stretch")
+    with droite:
+        carte = par_departement.copy()
+        carte["lat"] = carte["departement"].map(lambda d: CHEFS_LIEUX[d][0])
+        carte["lon"] = carte["departement"].map(lambda d: CHEFS_LIEUX[d][1])
+        carte["taille"] = 16000 * carte["par_habitant"] / carte["par_habitant"].max()
+        st.map(carte, latitude="lat", longitude="lon", size="taille", color="#A71E36AA", zoom=6, height=440)
+        st.caption("Un cercle par département, placé sur son chef-lieu : plus il est grand, plus on produit par habitant.")
+
+    premier, dernier = par_departement.iloc[0], par_departement.iloc[-1]
+    if len(par_departement) == 1:
+        phrase = (
+            f"**{premier['departement']}** produit {nombre(premier['par_habitant'])} {unite}. "
+            "Choisissez plusieurs départements pour les comparer"
+        )
+    else:
+        phrase = (
+            f"**{premier['departement']}** produit le plus par habitant ({nombre(premier['par_habitant'])} {unite}), "
+            f"**{dernier['departement']}** le moins ({nombre(dernier['par_habitant'])}), "
+            f"soit {nombre(premier['par_habitant'] / dernier['par_habitant'], 1)} fois moins"
+        )
+    phrase += "."
+    if dernier["departement"] == "Ouest" and len(par_departement) > 1:
+        phrase += " L'Ouest produit beaucoup en tout, mais ses 4 millions d'habitants vivent surtout dans l'agglomération de Port-au-Prince."
+    st.success(f"**Ce qu'on en conclut :** {phrase}")
