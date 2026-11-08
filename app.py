@@ -46,7 +46,7 @@ def charger_donnees():
 def nombre(valeur, decimales=0):
     """Écrit un nombre à la française : 1 234 567,8."""
     texte = f"{valeur:,.{decimales}f}"
-    return texte.replace(",", " ").replace(".", ",")
+    return texte.replace(",", " ").replace(".", ",")
 
 
 def ordre_saison(table):
@@ -79,8 +79,8 @@ cultures = st.sidebar.multiselect("Cultures", list(COULEURS), default=list(COULE
 
 filtre = recoltes[
     recoltes["annee"].isin(annees)
-    & recoltes["departement"].isin(departements)
-    & recoltes["culture"].isin(cultures)
+& recoltes["departement"].isin(departements)
+& recoltes["culture"].isin(cultures)
 ]
 if saison != "Les deux saisons":
     filtre = filtre[filtre["saison"] == saison]
@@ -528,3 +528,47 @@ with onglet5:
     if dernier["departement"] == "Ouest" and len(par_departement) > 1:
         phrase += " L'Ouest produit beaucoup en tout, mais ses 4 millions d'habitants vivent surtout dans l'agglomération de Port-au-Prince."
     st.success(f"**Ce qu'on en conclut :** {phrase}")
+
+# ------------------------------------------------------------------ Conclusion
+st.divider()
+st.header("Ce qu'il faut retenir")
+gauche, droite = st.columns(2)
+with gauche:
+    st.markdown(
+        """
+- **Compter en gourdes, pas en tonnes.** La banane domine en tonnes, mais l'igname rapporte le plus : 37 % de la valeur.
+- **Chaque culture a son département champion** : la Grand'Anse pour l'igname, l'Artibonite pour le riz, le Centre
+  pour le maïs et le sorgho. C'est là qu'il faut étudier les bonnes pratiques.
+- **La pluie pèse lourd** : elle explique 39 à 58 % des écarts de rendement, sauf pour le riz, plus souvent irrigué.
+- **L'igname recule de 32 %** parce que les surfaces plantées baissent, pas parce qu'elle rend moins.
+- **L'Ouest produit près de 5 fois moins par habitant que la Grand'Anse** : la capitale dépend des autres départements.
+"""
+    )
+with droite:
+    st.subheader("Les limites des données")
+    st.markdown(
+        """
+- Les données sont **fictives** et ne couvrent que 3 ans et 7 cultures.
+- **14 récoltes** sans production ont été retirées : les totaux de certaines années sont un peu sous-estimés.
+- Les **prix sont fixes** sur trois ans : la valeur ne suit ni l'inflation ni les variations de saison.
+- La **pluie** est une moyenne par département : elle cache les écarts entre plaines et mornes.
+- Rien ne dit **pourquoi** les surfaces changent (prix, insécurité, sols) ni ce qui est vendu, consommé ou perdu.
+"""
+    )
+
+with st.expander(f"Voir les données filtrées ({len(filtre)} récoltes)"):
+    st.dataframe(
+        filtre,
+        hide_index=True,
+        column_config={
+            "valeur_htg": st.column_config.NumberColumn("valeur_htg", format="localized"),
+        },
+    )
+    st.download_button(
+        "Télécharger ces données (CSV)",
+        filtre.to_csv(index=False).encode("utf-8"),
+        file_name="recoltes_filtrees.csv",
+        mime="text/csv",
+    )
+
+st.caption("Équipe Dessalines 20, ESIH 2026. Code et démarche complète : exploration.ipynb et app.py.")
