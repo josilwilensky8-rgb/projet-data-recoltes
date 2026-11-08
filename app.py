@@ -529,6 +529,60 @@ with onglet5:
         phrase += " L'Ouest produit beaucoup en tout, mais ses 4 millions d'habitants vivent surtout dans l'agglomération de Port-au-Prince."
     st.success(f"**Ce qu'on en conclut :** {phrase}")
 
+# ------------------------------------------------------------------ Bonus
+st.divider()
+st.header("Simuler une hausse de surface")
+st.markdown(
+    "Choisissez une culture et un département pour estimer la production et la valeur supplémentaires "
+    "si la surface cultivée augmentait. La simulation utilise les récoltes correspondant aux filtres "
+    "ci-dessus et suppose que le rendement et le prix restent identiques."
+)
+
+culture_sim = st.selectbox(
+    "Culture à simuler",
+    sorted(filtre["culture"].unique()),
+    key="bonus_culture",
+)
+recoltes_culture = filtre[filtre["culture"] == culture_sim]
+departement_sim = st.selectbox(
+    "Département",
+    sorted(recoltes_culture["departement"].unique()),
+    key="bonus_departement",
+)
+base_simulation = recoltes_culture[recoltes_culture["departement"] == departement_sim]
+
+hausse_pct = st.slider(
+    "Augmentation de la surface plantée",
+    min_value=0,
+    max_value=50,
+    value=10,
+    step=5,
+    format="%d%%",
+    key="bonus_hausse",
+)
+
+surface_actuelle = base_simulation["surface_ha"].sum()
+if surface_actuelle <= 0:
+    st.warning("Impossible de simuler une hausse : la surface observée doit être supérieure à zéro.")
+else:
+    production_actuelle = base_simulation["production_t"].sum()
+    rendement_observe = production_actuelle / surface_actuelle
+    prix_htg_kg = base_simulation["prix_htg_kg"].iloc[0]
+
+    surface_ajoutee = surface_actuelle * hausse_pct / 100
+    production_ajoutee = surface_ajoutee * rendement_observe
+    valeur_ajoutee = production_ajoutee * 1000 * prix_htg_kg
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Surface supplémentaire", f"{nombre(surface_ajoutee, 1)} ha")
+    col2.metric("Production supplémentaire", f"{nombre(production_ajoutee, 1)} t")
+    col3.metric("Valeur supplémentaire", f"{nombre(valeur_ajoutee)} HTG")
+    st.caption(
+        f"Base observée : {nombre(surface_actuelle, 1)} ha à "
+        f"{nombre(rendement_observe, 2)} t/ha pour {departement_sim} ({culture_sim}). "
+        "Cette estimation est indicative, pas une prévision."
+    )
+
 # ------------------------------------------------------------------ Conclusion
 st.divider()
 st.header("Ce qu'il faut retenir")
