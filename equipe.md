@@ -5,7 +5,7 @@
 | Membre | Identifiant GitHub | Rôle principal |
 | ------ | ------------------ | -------------- |
 | Josil Wilensky | josilwilensky8-rgb | Tableau de bord (`app.py`) et mise en ligne |
-|        |                    |                |
+|  Max Angelot NATOUX|maxangelotnatoux |Relecture du projet et ajouts bonus|
 |        |                    |                |
 |        |                    |                |
 |        |                    |                |
